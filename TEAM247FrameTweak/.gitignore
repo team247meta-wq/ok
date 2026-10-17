@@ -1,0 +1,5 @@
+.theos/
+packages/
+obj/
+.DS_Store
+frame_stage_test

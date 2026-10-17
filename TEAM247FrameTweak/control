@@ -1,0 +1,11 @@
+Package: com.team247.vcam.frametweak
+Name: TEAM247 Frame Tweak
+Version: 0.2.4
+Architecture: iphoneos-arm64
+Description: TEST-ONLY. Copies a locally supplied 32BGRA frame into
+ AVCaptureVideoDataOutput sample buffers. Leaves the real camera
+ untouched when no frame is staged.
+Maintainer: TEAM247 <team247@localhost>
+Author: TEAM247
+Section: Tweaks
+Depends: mobilesubstrate
