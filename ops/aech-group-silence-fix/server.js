@@ -23,6 +23,7 @@ const {
 
 // Lưới an toàn: một lỗi lẻ ở bất kỳ đâu KHÔNG được làm sập cả bot (tránh "bot ngừng").
 // Ghi log rồi tiếp tục chạy; mỗi update đã được bọc try/catch riêng, mọi ghi tiền đều trong transaction DB.
+console.log('GROUP_SILENCE_HARD=1');
 process.on('uncaughtException', e => { console.error('UNCAUGHT EXCEPTION:', (e && e.stack) || e); });
 process.on('unhandledRejection', e => { console.error('UNHANDLED REJECTION:', (e && e.stack) || e); });
 
