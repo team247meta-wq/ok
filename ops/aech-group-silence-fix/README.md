@@ -38,6 +38,9 @@ Then delete `GROUP_FIX_PATCHER_GZB64` (and related temp `GROUP_FIX_*` patcher va
 
 ## Current live workaround
 Inline surgical patcher in `GROUP_FIX_PATCHER_GZB64` (defines `slashCmd`/`isSlashCmd`/`isMenuLabel` on `server.js`, no gzip routing blob — large env blobs get corrupted via MCP).
+
+Checked-in copy: `patcher/surgical_inline.js` + `patcher/surgical_inline.gzb64` (rebuild: `gzip -c patcher/surgical_inline.js | base64 -w0`).
+
 `startCommand`:
 
 ```
@@ -45,6 +48,8 @@ node -e "const b=process.env.GROUP_FIX_PATCHER_GZB64||'';console.log('PATCHER_LE
 ```
 
 Keep patcher gzb64 under ~2.2KB when setting via Railway MCP.
+
+Live verify (2026-11-09 10:49 Asia/Bangkok): deploy `5072c3c9`, `GROUP_FIX_APPLIED=1 INLINE=1`, `SUPER_ADMIN_COUNT=1`, DIAG `*_EQ_EXPECTED=yes`.
 
 ## How admin should send commands
 - **Groups:** `/command` or Telegram `/` menu (`/command@ngayngo_bot` OK). Exact reply-keyboard labels also work for users with access.
