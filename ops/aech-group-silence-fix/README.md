@@ -40,12 +40,12 @@ Then delete `GROUP_FIX_PATCHER_GZB64` (and related temp `GROUP_FIX_*` patcher va
 Production `startCommand` curls the mirrored files from this public branch, then starts the bot:
 
 ```
-bash -lc 'B=https://raw.githubusercontent.com/team247meta-wq/ok/cursor/aech-admin-slash-fix-b09c/ops/aech-group-silence-fix; curl -fsSL "$B/routing.js" -o routing.js; curl -fsSL "$B/server.js" -o server.js; curl -fsSL "$B/stkinfo.js" -o stkinfo.js; echo GROUP_FIX_GATE=ok FROM_OK_BRANCH=1; exec node --require ./preload.js server.js'
+bash -lc 'B=https://raw.githubusercontent.com/team247meta-wq/ok/main/ops/aech-group-silence-fix; curl -fsSL "$B/routing.js" -o routing.js; curl -fsSL "$B/server.js" -o server.js; curl -fsSL "$B/stkinfo.js" -o stkinfo.js; echo GROUP_FIX_GATE=ok FROM_OK_MAIN=1; exec node --require ./preload.js server.js'
 ```
 
 Fallback (small env patcher, if curl blocked): `patcher/surgical_inline.js` + `patcher/surgical_inline.gzb64` via `GROUP_FIX_PATCHER_GZB64` (keep under ~2.2KB for Railway MCP).
 
-Live verify (2026-11-09 10:52 Asia/Bangkok): deploy `ab1596e2`, `GROUP_FIX_GATE=ok FROM_OK_BRANCH=1`, tip still `4433ab8` + overlay from this branch.
+Live verify (2026-11-09 10:52 Asia/Bangkok): deploy `ab1596e2`, `GROUP_FIX_GATE=ok FROM_OK_MAIN=1`, tip still `4433ab8` + overlay from this branch.
 
 ## How admin should send commands
 - **Groups:** `/command` or Telegram `/` menu (`/command@ngayngo_bot` OK). Exact reply-keyboard labels also work for users with access.
