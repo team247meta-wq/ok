@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { isCommandText, isSlashCommand, isGroupAllowedMessage, allowQuickTransaction, SessionMap, SESSION_TTL_MS } = require('../routing');
+const { isCommandText, isSlashCommand, isSlashCmd, slashCmd, isGroupAllowedMessage, allowQuickTransaction, SessionMap, SESSION_TTL_MS } = require('../routing');
 
 test('slash messages are commands', () => {
   assert.equal(isCommandText('/start'), true);
@@ -59,12 +59,26 @@ test('in-place mutation of a stored session persists', () => {
   assert.equal(s.get('k').n, 2);
 });
 
-
 test('isSlashCommand trims and accepts /cmd@bot', () => {
   assert.equal(isSlashCommand('/bank'), true);
   assert.equal(isSlashCommand(' /bank@MyBot'), true);
   assert.equal(isSlashCommand('🏦 Tạo QR'), false);
   assert.equal(isSlashCommand('tiền vào 100k'), false);
+});
+
+test('isSlashCmd matches /cmd@bot menu form used in groups', () => {
+  assert.equal(slashCmd('/start@aech_bot'), 'start');
+  assert.equal(slashCmd('/help@AECHBot'), 'help');
+  assert.equal(slashCmd('/group@bot extra'), 'group');
+  assert.equal(isSlashCmd('/start@aech_bot', 'start', 'help'), true);
+  assert.equal(isSlashCmd('/in@MyBot', 'in'), true);
+  assert.equal(isSlashCmd('/out@MyBot', 'out'), true);
+  assert.equal(isSlashCmd('/qr@x', 'qr'), true);
+  assert.equal(isSlashCmd('/total@x', 'total'), true);
+  assert.equal(isSlashCmd('/list@x', 'list', 'lichsu'), true);
+  assert.equal(isSlashCmd('/close@x', 'close'), true);
+  assert.equal(isSlashCmd('/cancel@x', 'cancel', 'huy'), true);
+  assert.equal(isSlashCmd('⚙️ Quản lý', 'quanly'), false);
 });
 
 test('isGroupAllowedMessage is slash-only outside private', () => {

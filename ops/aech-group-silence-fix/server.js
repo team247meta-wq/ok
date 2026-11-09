@@ -23,7 +23,6 @@ const {
 
 // Lưới an toàn: một lỗi lẻ ở bất kỳ đâu KHÔNG được làm sập cả bot (tránh "bot ngừng").
 // Ghi log rồi tiếp tục chạy; mỗi update đã được bọc try/catch riêng, mọi ghi tiền đều trong transaction DB.
-console.log('GROUP_SILENCE_HARD=1');
 process.on('uncaughtException', e => { console.error('UNCAUGHT EXCEPTION:', (e && e.stack) || e); });
 process.on('unhandledRejection', e => { console.error('UNHANDLED REJECTION:', (e && e.stack) || e); });
 
@@ -43,6 +42,9 @@ const SUPER_ADMIN_IDS = new Set(
     .map(x => x.trim()).filter(Boolean)
 );
 function isSuperAdmin(userId){ return SUPER_ADMIN_IDS.has(String(userId)); }
+console.log('GROUP_SILENCE_HARD=1');
+console.log('SUPER_ADMIN_COUNT=' + SUPER_ADMIN_IDS.size);
+const { isSlashCmd } = routing;
 const LARGE_AMOUNT = (() => { try { return BigInt(process.env.BOT_LARGE_AMOUNT || '100000000'); } catch { return 100000000n; } })();
 const BOT_TIMEZONE = process.env.BOT_TIMEZONE || 'Asia/Ho_Chi_Minh';
 // Telegram web_app buttons require an https URL (else BUTTON_TYPE_INVALID). Unset/empty/http -> https default.
@@ -579,13 +581,16 @@ async function handleMessage(message){
     await handleImage(message);return;
   }
   if(chat.type!=='private'&&stkinfo.isStkInfoCommand(text)){await handleStkInfo(chat);return;}
-  // HARD RULE: groups only process slash commands (prefer bot_command entity at offset 0).
+  // HARD RULE: groups only process slash commands (/cmd and /cmd@bot).
   // MENU_LABELS / sessions / pendingNv must NOT bypass silence in non-private chats.
   const isSlash=routing.isSlashCommand(text, message.entities);
   const isControl=isPrivate&&routing.isCommandText(text);
   const access=await getAccess(chat,from);
-  // Người không có quyền: không xử lý gì, không hiện nút, không bấm được (im lặng).
-  if(access==='none'){return;}
+  // No access: silent on free text (group noise). Slash / private menu → clear deny.
+  if(access==='none'){
+    if(isSlash||isControl){try{await deny(chat.id);}catch{}}
+    return;
+  }
   // Pending nv:add / nv:del — private chats only. Groups: ignore free-text pending consumption.
   const nvKey=`${chat.id}:${from.id}`;
   const pend=pendingNv.get(nvKey);
@@ -593,11 +598,11 @@ async function handleMessage(message){
     if(Date.now()>pend.exp){pendingNv.delete(nvKey);}
     else if(!isPrivate){
       // In groups only honor explicit slash cancel; never swallow free text as staff target.
-      if(text==='/cancel'||text==='/huy'){pendingNv.delete(nvKey);await send(chat.id,'✅ Đã hủy thao tác nhân viên.');return;}
+      if(isSlashCmd(text,'cancel','huy')){pendingNv.delete(nvKey);await send(chat.id,'✅ Đã hủy thao tác nhân viên.');return;}
       if(isSlash)pendingNv.delete(nvKey);
       // else: leave pending untouched but do not consume; fall through to hard gate
     }
-    else if(text==='/cancel'||text==='/huy'){pendingNv.delete(nvKey);await send(chat.id,'✅ Đã hủy thao tác nhân viên.');return;}
+    else if(isSlashCmd(text,'cancel','huy')){pendingNv.delete(nvKey);await send(chat.id,'✅ Đã hủy thao tác nhân viên.');return;}
     else if(isSlash){pendingNv.delete(nvKey);}
     else{
       if(access!=='admin'){pendingNv.delete(nvKey);await send(chat.id,'⛔ Chỉ Admin chính.');return;}
@@ -649,12 +654,12 @@ async function handleMessage(message){
     }
   }
 
-  if(text==='/start'||text==='/help'){
+  if(isSlashCmd(text,'start','help')){
     const warning=chat.type!=='private'&&!await botIsGroupAdmin(chat)?'\n⚠️ Thêm bot làm Quản trị để tự đọc tin khách.':'';
-    const guide=text==='/help'?'\n\n📖 Hướng dẫn:\n• 💰/💸: ghi tiền vào/ra (nhập số, hỗ trợ 500k, 1tr2, phép tính 500k*3).\n• 🏦 Tạo QR: chọn STK nhận rồi nhập số tiền + nội dung, hoặc gửi/paste thông tin khách.\n• 📊 Tổng: xem nhanh thu/chi/số dư.\n• ⚙️ Quản lý: Chốt sổ, Sao kê, STK nhận, Lịch sử, Nhân viên, Thông báo, Backup.\n• Gửi ảnh có mã QR: bot đọc ra thông tin.\n\n👥 Thêm nhân viên (admin): REPLY tin của người đó rồi gõ /them_nv, hoặc /them_nv <userId số> hoặc /them_nv @username — họ được ghi tiền/tạo QR/xem, KHÔNG sửa/xóa.\n➖ Xóa: /xoa_nv (reply) hoặc /xoa_nv <userId | @username>.\n⚙️ Admin (lệnh nhanh): /setgroup /setfee /them_nv /xoa_nv /nhanvien /them_stk /huygd /group':'';
-    await send(chat.id,`AECH • ${group.name||chat.title||''}\nPhí: ${group.feeConfigured?formatFeeRatePercent(group.feeRatePpm):'chưa cấu hình'}\nSố dư: ${money(await storage.getBalance(chat.id))}${warning}${guide}`,{reply_markup:mainKeyboard(),reply_parameters:{message_id:message.message_id}});return;
+    const guide=isSlashCmd(text,'help')?'\n\n📖 Hướng dẫn:\n• 💰/💸: ghi tiền vào/ra (nhập số, hỗ trợ 500k, 1tr2, phép tính 500k*3).\n• 🏦 Tạo QR: chọn STK nhận rồi nhập số tiền + nội dung, hoặc gửi/paste thông tin khách.\n• 📊 Tổng: xem nhanh thu/chi/số dư.\n• ⚙️ Quản lý: Chốt sổ, Sao kê, STK nhận, Lịch sử, Nhân viên, Thông báo, Backup.\n• Gửi ảnh có mã QR: bot đọc ra thông tin.\n\n👥 Thêm nhân viên (admin): REPLY tin của người đó rồi gõ /them_nv, hoặc /them_nv <userId số> hoặc /them_nv @username — họ được ghi tiền/tạo QR/xem, KHÔNG sửa/xóa.\n➖ Xóa: /xoa_nv (reply) hoặc /xoa_nv <userId | @username>.\n⚙️ Admin (lệnh nhanh): /setgroup /setfee /them_nv /xoa_nv /nhanvien /them_stk /huygd /group':'';
+    await send(chat.id,`AECH • ${group.name||chat.title||''}\nPhí: ${group.feeConfigured?formatFeeRatePercent(group.feeRatePpm):'chưa cấu hình'}\nSố dư: ${money(await storage.getBalance(chat.id))}${warning}${guide}`,{reply_markup:isPrivate?mainKeyboard():undefined,reply_parameters:{message_id:message.message_id}});return;
   }
-  if(text==='/cancel'||text==='/huy'){sessions.delete(key);await send(chat.id,'✅ Đã thoát thao tác đang chờ.',{reply_markup:mainKeyboard()});return;}
+  if(isSlashCmd(text,'cancel','huy')){sessions.delete(key);await send(chat.id,'✅ Đã thoát thao tác đang chờ.',{reply_markup:isPrivate?mainKeyboard():undefined});return;}
   if(/^\/(?:setgroup|setupgroup)(?:@\w+)?(?:\s|$)/i.test(text)){
     if(access!=='admin'){await send(chat.id,'⛔ Chỉ Admin chính.');return;}
     const spec=text.replace(/^\/(?:setgroup|setupgroup)(?:@\w+)?\s*/i,'').trim();
@@ -680,7 +685,7 @@ async function handleMessage(message){
   }
 
   if(/^\/(nhanvien|nv|staff)(?:@\w+)?$/i.test(text)){const m=await storage.listManagers(chat.id);if(!m.length){await send(chat.id,'👥 Chưa có nhân viên.\nThêm: REPLY tin của người đó rồi gõ /them_nv');return;}await send(chat.id,'👥 NHÂN VIÊN:\n'+m.map((x,i)=>`${i+1}. ${x.userName||x.userId}`).join('\n')+'\n\nThêm: reply tin của họ + /them_nv\nXóa: reply tin của họ + /xoa_nv');return;}
-  if(text==='/group'){const g=await storage.getGroup(chat.id),m=await storage.listManagers(chat.id),accts=await storage.listReceivingAccounts(chat.id);await send(chat.id,`⚙️ ${g.name}\nPhí: ${g.feeConfigured?formatFeeRatePercent(g.feeRatePpm):'chưa cấu hình'}\nSố dư: ${money(await storage.getBalance(chat.id))}\nQuản trị được cấp: ${m.length}\nSTK nhận: ${accts.length}\n\nLệnh: /stk /them_stk /xoa_stk /saoke /huygd`);return;}
+  if(isSlashCmd(text,'group')){const g=await storage.getGroup(chat.id),m=await storage.listManagers(chat.id),accts=await storage.listReceivingAccounts(chat.id);await send(chat.id,`⚙️ ${g.name}\nPhí: ${g.feeConfigured?formatFeeRatePercent(g.feeRatePpm):'chưa cấu hình'}\nSố dư: ${money(await storage.getBalance(chat.id))}\nQuản trị được cấp: ${m.length}\nSTK nhận: ${accts.length}\n\nLệnh: /stk /them_stk /xoa_stk /saoke /huygd`);return;}
   if(/^\/(saoke|export)(?:@\w+)?(\s|$)/i.test(text)){await handleStatement(chat,text);return;}
   if(/^\/baocao(?:@\w+)?(\s|$)/i.test(text)){await send(chat.id,await groupSummaryText(chat.id));const d=await storage.businessDate(chat.id);const file=await buildStatementFile(chat.id,d,d,'hôm nay');if(file)await sendDocument(chat.id,file.fname,file.buffer,file.caption,file.mime);return;}
   if(/^\/stk(?:@\w+)?$/i.test(text)){
@@ -753,10 +758,10 @@ async function handleMessage(message){
   }
   if(state?.mode==='preset_amount'){const amount=parseAmount(text);if(!amount){await send(chat.id,'⚠️ Số tiền không hợp lệ.',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}sessions.set(key,{mode:'preset_content',presetId:state.presetId,amount:amount.toString()});await send(chat.id,'📝 Nhập nội dung chuyển khoản:',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}
   if(state?.mode==='preset_content'){const acct=await storage.getReceivingAccount(chat.id,state.presetId);if(!acct){sessions.delete(key);await send(chat.id,'⚠️ Tài khoản nhận không còn.');return;}const parsed={bank:acct.bankBin,account:acct.accountNo,name:acct.accountName,amount:BigInt(state.amount),content:text,note:'',raw:''};const request=await finalizePayment(chat,from,parsed,message.message_id);if(request)sessions.delete(key);return;}
-  if((isPrivate&&text==='💰 Tiền vào')||text==='/in'){sessions.set(key,{mode:'tx',type:'in'});await send(chat.id,'💰 Nhập số tiền vào.',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}
-  if((isPrivate&&text==='💸 Tiền ra')||text==='/out'){sessions.set(key,{mode:'tx',type:'out'});await send(chat.id,'💸 Nhập số tiền ra.',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}
+  if((isPrivate&&text==='💰 Tiền vào')||isSlashCmd(text,'in')){sessions.set(key,{mode:'tx',type:'in'});await send(chat.id,'💰 Nhập số tiền vào.',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}
+  if((isPrivate&&text==='💸 Tiền ra')||isSlashCmd(text,'out')){sessions.set(key,{mode:'tx',type:'out'});await send(chat.id,'💸 Nhập số tiền ra.',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}
   if(state?.mode==='tx'){const amount=parseAmount(text);if(!amount){await send(chat.id,'⚠️ Số tiền không hợp lệ.',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}sessions.delete(key);await showTransactionPreview(chat,state.type,amount,message.message_id);return;}
-  if((isPrivate&&text==='🏦 Tạo QR')||text==='/qr'){
+  if((isPrivate&&text==='🏦 Tạo QR')||isSlashCmd(text,'qr')){
     const accts=await storage.listReceivingAccounts(chat.id);
     if(accts.length){
       const rows=accts.map(a=>[{text:`${a.bankName} • ${a.accountNo}${a.label?` · 📝 ${a.label.slice(0,25)}`:''}`,callback_data:`preset:${a.id}`}]);
@@ -779,8 +784,8 @@ async function handleMessage(message){
     if(miss.length){sessions.set(key,{mode:'complete_payment',p,missing:miss});await send(chat.id,`👉 Nhập giúp "${miss[0]}":`,{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}
     sessions.delete(key);await finalizePayment(chat,from,norm,message.message_id);return;
   }
-  if((isPrivate&&text==='📊 Tổng')||text==='/total'){await send(chat.id,await groupSummaryText(chat.id));return;}
-  if(isPrivate&&text==='⚙️ Quản lý'){
+  if((isPrivate&&text==='📊 Tổng')||isSlashCmd(text,'total')){await send(chat.id,await groupSummaryText(chat.id));return;}
+  if((isPrivate&&text==='⚙️ Quản lý')||isSlashCmd(text,'quanly','manage','admin')){
     const rows=[
       [{text:'🧾 Chốt sổ',callback_data:'mng:chotso'},{text:'📄 Sao kê',callback_data:'mng:saoke'}],
       [{text:'🏦 STK nhận',callback_data:'mng:stk'},{text:'📒 Lịch sử',callback_data:'mng:list'}]
@@ -802,7 +807,7 @@ async function handleMessage(message){
     }
     await send(chat.id,'🔎 KIỂM TRA NHÓM\n'+lines.join('\n'));return;
   }
-  if((isPrivate&&text==='📢 Thông báo')||/^\/thongbao(?:@\w+)?$/i.test(text)){
+  if((isPrivate&&text==='📢 Thông báo')||isSlashCmd(text,'thongbao')){
     if(access!=='admin'){await send(chat.id,'⛔ Chỉ Admin chính được gửi thông báo.');return;}
     const groups=await storage.listGroups();
     if(!groups.length){await send(chat.id,'Chưa có nhóm nào.');return;}
@@ -811,8 +816,8 @@ async function handleMessage(message){
     await send(chat.id,'📢 Chọn nơi gửi thông báo:',{reply_markup:inline(rows)});
     return;
   }
-  if(text==='/list'||text==='/lichsu'){const rows=await storage.listTransactions(chat.id,10);if(!rows.length){await send(chat.id,'📒 Chưa có giao dịch.');return;}await send(chat.id,rows.map(t=>t.type==='in'?`🟢 ${t.id} +${money(t.gross)} • phí ${money(t.fee)}`:`🔴 ${t.id} -${money(t.gross)}`).join('\n'));return;}
-  if((isPrivate&&text==='🧾 Chốt sổ')||text==='/close'){const s=await storage.dailySummary(chat.id),g=await storage.getGroup(chat.id);await send(chat.id,closeoutText(g,s,false),{reply_markup:inline([[{text:'✅ Xác nhận chốt',callback_data:`close:${s.date}`},{text:'❌ Hủy',callback_data:'tx:cancel'}]])});return;}
+  if(isSlashCmd(text,'list','lichsu')){const rows=await storage.listTransactions(chat.id,10);if(!rows.length){await send(chat.id,'📒 Chưa có giao dịch.');return;}await send(chat.id,rows.map(t=>t.type==='in'?`🟢 ${t.id} +${money(t.gross)} • phí ${money(t.fee)}`:`🔴 ${t.id} -${money(t.gross)}`).join('\n'));return;}
+  if((isPrivate&&text==='🧾 Chốt sổ')||isSlashCmd(text,'close')){const s=await storage.dailySummary(chat.id),g=await storage.getGroup(chat.id);await send(chat.id,closeoutText(g,s,false),{reply_markup:inline([[{text:'✅ Xác nhận chốt',callback_data:`close:${s.date}`},{text:'❌ Hủy',callback_data:'tx:cancel'}]])});return;}
   const quick=isPrivate&&routing.allowQuickTransaction(text)?parseQuickTransaction(text):null;if(quick?.amount){await showTransactionPreview(chat,quick.type,quick.amount,message.message_id);return;}
   // Tin nhắn tự do (không phải lệnh /): AI phân loại ý định. Không ghi sổ khi chưa xác nhận.
   // AI phân loại tin tự do: TẮT mặc định, chỉ bật khi AI_MESSAGE_ANALYZE=1.
@@ -841,7 +846,21 @@ async function startTelegramBot(){
   try{const me=await telegram('getMe');botUserId=String(me?.result?.id||'');}catch(e){console.error('Telegram getMe error:',e.message);}
   try{await telegram('deleteWebhook',{drop_pending_updates:false});console.log('Telegram webhook cleared.');}catch(e){console.error('Telegram webhook setup error:',e.message);}
   try{await telegram('setChatMenuButton',{menu_button:{type:'web_app',text:'Gắn bank',web_app:{url:WEBAPP_URL}}});console.log('Telegram menu button set.');}catch(e){console.error('setChatMenuButton error:',e.message);}
-  try{await telegram('setMyCommands',{commands:[{command:'gan_bank',description:'Mở Mini App gắn bank'},{command:'bank',description:'Xem STK nhận, QR và ghi chú'}]});console.log('Telegram commands set.');}catch(e){console.error('setMyCommands error:',e.message);}
+  try{await telegram('setMyCommands',{commands:[
+    {command:'start',description:'Trạng thái nhóm / số dư'},
+    {command:'help',description:'Hướng dẫn lệnh'},
+    {command:'bank',description:'Xem STK nhận, QR và ghi chú'},
+    {command:'gan_bank',description:'Mở Mini App gắn bank (admin)'},
+    {command:'group',description:'Tóm tắt cấu hình nhóm'},
+    {command:'total',description:'Tổng thu/chi/số dư'},
+    {command:'in',description:'Ghi tiền vào'},
+    {command:'out',description:'Ghi tiền ra'},
+    {command:'qr',description:'Tạo QR nhận tiền'},
+    {command:'list',description:'Lịch sử giao dịch gần đây'},
+    {command:'quanly',description:'Menu quản lý'},
+    {command:'them_nv',description:'Thêm nhân viên (admin)'},
+    {command:'xoa_nv',description:'Xóa nhân viên (admin)'},
+  ]});console.log('Telegram commands set.');}catch(e){console.error('setMyCommands error:',e.message);}
   let offset=0;
   while(!shuttingDown){try{await storage.ensurePollLock();const data=await telegram('getUpdates',{offset,timeout:25,allowed_updates:['message','callback_query','my_chat_member']});for(const update of data.result||[]){offset=update.update_id+1;try{await handleUpdate(update);}catch(e){console.error('Update handling error:',e.message);const chatId=update.message?.chat?.id||update.callback_query?.message?.chat?.id;if(chatId)try{await send(chatId,'⚠️ Có lỗi khi xử lý. Chưa ghi giao dịch.');}catch{}}}}catch(e){console.error('Telegram polling error:',e.message);await sleep(3000);}}
 }
