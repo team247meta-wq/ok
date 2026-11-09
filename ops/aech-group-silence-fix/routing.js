@@ -2,7 +2,8 @@
 
 // Message routing rules. Pure helpers so the rules can be unit-tested without the bot runtime.
 
-// Exact menu-button labels (reply keyboard). Private chats only — never treated as commands in groups.
+// Exact menu-button labels (reply keyboard). Server may allow these in groups for users with access;
+// isGroupAllowedMessage stays slash-only so free-text silence helpers stay strict.
 const MENU_LABELS = ['💰 Tiền vào', '💸 Tiền ra', '📊 Tổng', '🏦 Tạo QR', '⚙️ Quản lý', '📢 Thông báo', '🧾 Chốt sổ'];
 
 function isMenuLabel(text) {

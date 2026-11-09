@@ -42,7 +42,7 @@ const SUPER_ADMIN_IDS = new Set(
     .map(x => x.trim()).filter(Boolean)
 );
 function isSuperAdmin(userId){ return SUPER_ADMIN_IDS.has(String(userId)); }
-console.log('GROUP_SILENCE_HARD=1');
+console.log('GROUP_SILENCE_HARD=1 ADMIN_MENU=1 SLASH_AT=1');
 console.log('SUPER_ADMIN_COUNT=' + SUPER_ADMIN_IDS.size);
 const { isSlashCmd } = routing;
 const LARGE_AMOUNT = (() => { try { return BigInt(process.env.BOT_LARGE_AMOUNT || '100000000'); } catch { return 100000000n; } })();
@@ -581,10 +581,11 @@ async function handleMessage(message){
     await handleImage(message);return;
   }
   if(chat.type!=='private'&&stkinfo.isStkInfoCommand(text)){await handleStkInfo(chat);return;}
-  // HARD RULE: groups only process slash commands (/cmd and /cmd@bot).
-  // MENU_LABELS / sessions / pendingNv must NOT bypass silence in non-private chats.
+  // Groups: slash (/cmd, /cmd@bot) OR exact MENU_LABELS for users who already have access.
+  // Free text / leftover sessions / pendingNv still do NOT bypass silence in groups.
   const isSlash=routing.isSlashCommand(text, message.entities);
-  const isControl=isPrivate&&routing.isCommandText(text);
+  const isMenu=routing.isMenuLabel(text);
+  const isControl=isSlash||isMenu;
   const access=await getAccess(chat,from);
   // No access: silent on free text (group noise). Slash / private menu → clear deny.
   if(access==='none'){
@@ -616,9 +617,9 @@ async function handleMessage(message){
       return;
     }
   }
-  // Nhóm: ONLY slash. No MENU_LABELS (isControl), no leftover sessions bypass.
+  // Nhóm: slash or exact menu label. No leftover sessions / free-text bypass.
   // Optional: allow free text only when clearly replying to the bot (force_reply continuation).
-  if(!isPrivate&&!isSlash){
+  if(!isPrivate&&!isSlash&&!isMenu){
     if(!isReplyToBot(message)){
       const sk=sessionKey(chat.id,from.id);
       if(sessions.has(sk))sessions.delete(sk);
@@ -654,6 +655,10 @@ async function handleMessage(message){
     }
   }
 
+  if(isSlashCmd(text,'whoami','me','quyen')){
+    await send(chat.id,`🪪 userId: ${from.id}\nQuyền: ${access}\nChat: ${chat.type} ${chat.id}\nSuperAdmin: ${isSuperAdmin(from.id)?'yes':'no'}`);
+    return;
+  }
   if(isSlashCmd(text,'start','help')){
     const warning=chat.type!=='private'&&!await botIsGroupAdmin(chat)?'\n⚠️ Thêm bot làm Quản trị để tự đọc tin khách.':'';
     const guide=isSlashCmd(text,'help')?'\n\n📖 Hướng dẫn:\n• 💰/💸: ghi tiền vào/ra (nhập số, hỗ trợ 500k, 1tr2, phép tính 500k*3).\n• 🏦 Tạo QR: chọn STK nhận rồi nhập số tiền + nội dung, hoặc gửi/paste thông tin khách.\n• 📊 Tổng: xem nhanh thu/chi/số dư.\n• ⚙️ Quản lý: Chốt sổ, Sao kê, STK nhận, Lịch sử, Nhân viên, Thông báo, Backup.\n• Gửi ảnh có mã QR: bot đọc ra thông tin.\n\n👥 Thêm nhân viên (admin): REPLY tin của người đó rồi gõ /them_nv, hoặc /them_nv <userId số> hoặc /them_nv @username — họ được ghi tiền/tạo QR/xem, KHÔNG sửa/xóa.\n➖ Xóa: /xoa_nv (reply) hoặc /xoa_nv <userId | @username>.\n⚙️ Admin (lệnh nhanh): /setgroup /setfee /them_nv /xoa_nv /nhanvien /them_stk /huygd /group':'';
@@ -758,10 +763,10 @@ async function handleMessage(message){
   }
   if(state?.mode==='preset_amount'){const amount=parseAmount(text);if(!amount){await send(chat.id,'⚠️ Số tiền không hợp lệ.',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}sessions.set(key,{mode:'preset_content',presetId:state.presetId,amount:amount.toString()});await send(chat.id,'📝 Nhập nội dung chuyển khoản:',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}
   if(state?.mode==='preset_content'){const acct=await storage.getReceivingAccount(chat.id,state.presetId);if(!acct){sessions.delete(key);await send(chat.id,'⚠️ Tài khoản nhận không còn.');return;}const parsed={bank:acct.bankBin,account:acct.accountNo,name:acct.accountName,amount:BigInt(state.amount),content:text,note:'',raw:''};const request=await finalizePayment(chat,from,parsed,message.message_id);if(request)sessions.delete(key);return;}
-  if((isPrivate&&text==='💰 Tiền vào')||isSlashCmd(text,'in')){sessions.set(key,{mode:'tx',type:'in'});await send(chat.id,'💰 Nhập số tiền vào.',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}
-  if((isPrivate&&text==='💸 Tiền ra')||isSlashCmd(text,'out')){sessions.set(key,{mode:'tx',type:'out'});await send(chat.id,'💸 Nhập số tiền ra.',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}
+  if(text==='💰 Tiền vào'||isSlashCmd(text,'in')){sessions.set(key,{mode:'tx',type:'in'});await send(chat.id,'💰 Nhập số tiền vào.',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}
+  if(text==='💸 Tiền ra'||isSlashCmd(text,'out')){sessions.set(key,{mode:'tx',type:'out'});await send(chat.id,'💸 Nhập số tiền ra.',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}
   if(state?.mode==='tx'){const amount=parseAmount(text);if(!amount){await send(chat.id,'⚠️ Số tiền không hợp lệ.',{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}sessions.delete(key);await showTransactionPreview(chat,state.type,amount,message.message_id);return;}
-  if((isPrivate&&text==='🏦 Tạo QR')||isSlashCmd(text,'qr')){
+  if(text==='🏦 Tạo QR'||isSlashCmd(text,'qr')){
     const accts=await storage.listReceivingAccounts(chat.id);
     if(accts.length){
       const rows=accts.map(a=>[{text:`${a.bankName} • ${a.accountNo}${a.label?` · 📝 ${a.label.slice(0,25)}`:''}`,callback_data:`preset:${a.id}`}]);
@@ -784,8 +789,8 @@ async function handleMessage(message){
     if(miss.length){sessions.set(key,{mode:'complete_payment',p,missing:miss});await send(chat.id,`👉 Nhập giúp "${miss[0]}":`,{reply_markup:forceReply(),reply_parameters:{message_id:message.message_id}});return;}
     sessions.delete(key);await finalizePayment(chat,from,norm,message.message_id);return;
   }
-  if((isPrivate&&text==='📊 Tổng')||isSlashCmd(text,'total')){await send(chat.id,await groupSummaryText(chat.id));return;}
-  if((isPrivate&&text==='⚙️ Quản lý')||isSlashCmd(text,'quanly','manage','admin')){
+  if(text==='📊 Tổng'||isSlashCmd(text,'total')){await send(chat.id,await groupSummaryText(chat.id));return;}
+  if(text==='⚙️ Quản lý'||isSlashCmd(text,'quanly','manage','admin')){
     const rows=[
       [{text:'🧾 Chốt sổ',callback_data:'mng:chotso'},{text:'📄 Sao kê',callback_data:'mng:saoke'}],
       [{text:'🏦 STK nhận',callback_data:'mng:stk'},{text:'📒 Lịch sử',callback_data:'mng:list'}]
@@ -807,7 +812,7 @@ async function handleMessage(message){
     }
     await send(chat.id,'🔎 KIỂM TRA NHÓM\n'+lines.join('\n'));return;
   }
-  if((isPrivate&&text==='📢 Thông báo')||isSlashCmd(text,'thongbao')){
+  if(text==='📢 Thông báo'||isSlashCmd(text,'thongbao')){
     if(access!=='admin'){await send(chat.id,'⛔ Chỉ Admin chính được gửi thông báo.');return;}
     const groups=await storage.listGroups();
     if(!groups.length){await send(chat.id,'Chưa có nhóm nào.');return;}
@@ -817,7 +822,7 @@ async function handleMessage(message){
     return;
   }
   if(isSlashCmd(text,'list','lichsu')){const rows=await storage.listTransactions(chat.id,10);if(!rows.length){await send(chat.id,'📒 Chưa có giao dịch.');return;}await send(chat.id,rows.map(t=>t.type==='in'?`🟢 ${t.id} +${money(t.gross)} • phí ${money(t.fee)}`:`🔴 ${t.id} -${money(t.gross)}`).join('\n'));return;}
-  if((isPrivate&&text==='🧾 Chốt sổ')||isSlashCmd(text,'close')){const s=await storage.dailySummary(chat.id),g=await storage.getGroup(chat.id);await send(chat.id,closeoutText(g,s,false),{reply_markup:inline([[{text:'✅ Xác nhận chốt',callback_data:`close:${s.date}`},{text:'❌ Hủy',callback_data:'tx:cancel'}]])});return;}
+  if(text==='🧾 Chốt sổ'||isSlashCmd(text,'close')){const s=await storage.dailySummary(chat.id),g=await storage.getGroup(chat.id);await send(chat.id,closeoutText(g,s,false),{reply_markup:inline([[{text:'✅ Xác nhận chốt',callback_data:`close:${s.date}`},{text:'❌ Hủy',callback_data:'tx:cancel'}]])});return;}
   const quick=isPrivate&&routing.allowQuickTransaction(text)?parseQuickTransaction(text):null;if(quick?.amount){await showTransactionPreview(chat,quick.type,quick.amount,message.message_id);return;}
   // Tin nhắn tự do (không phải lệnh /): AI phân loại ý định. Không ghi sổ khi chưa xác nhận.
   // AI phân loại tin tự do: TẮT mặc định, chỉ bật khi AI_MESSAGE_ANALYZE=1.
