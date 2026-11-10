@@ -2,8 +2,8 @@
 
 // Message routing rules. Pure helpers so the rules can be unit-tested without the bot runtime.
 
-// Exact menu-button labels (reply keyboard). Server may allow these in groups for users with access;
-// isGroupAllowedMessage stays slash-only so free-text silence helpers stay strict.
+// Exact menu-button labels (reply keyboard). Server may allow these in groups for users with access.
+// Groups stay slash-first for menus; clear CK/payment text (STK + bank/amount) is the only free-text pass.
 const MENU_LABELS = ['💰 Tiền vào', '💸 Tiền ra', '📊 Tổng', '🏦 Tạo QR', '⚙️ Quản lý', '📢 Thông báo', '🧾 Chốt sổ'];
 
 function isMenuLabel(text) {
@@ -40,11 +40,13 @@ function isCommandText(text) {
   return t.startsWith('/') || MENU_LABELS.includes(t);
 }
 
-// Non-private chats: only slash-prefixed text is allowed through the early gate.
+// Non-private chats: slash commands, or a clear payment request (account + bank/amount).
+// Menu labels, leftover sessions, +/- quick tx, and ordinary chat stay blocked.
 // Private chats: always allowed (menus/sessions/wizards keep working).
-function isGroupAllowedMessage({ text, entities, chatType } = {}) {
+function isGroupAllowedMessage({ text, entities, chatType, parsed } = {}) {
   if (!chatType || chatType === 'private') return true;
-  return isSlashCommand(text, entities);
+  if (isSlashCommand(text, entities)) return true;
+  return isClearPaymentRequest(text, parsed);
 }
 
 function allowQuickTransaction(text) {

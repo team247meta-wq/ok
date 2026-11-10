@@ -81,8 +81,16 @@ test('isSlashCmd matches /cmd@bot menu form used in groups', () => {
   assert.equal(isSlashCmd('⚙️ Quản lý', 'quanly'), false);
 });
 
-test('isGroupAllowedMessage is slash-only outside private', () => {
+test('isGroupAllowedMessage is slash-only outside private unless clear CK', () => {
   assert.equal(isGroupAllowedMessage({ text: '/qr', chatType: 'group' }), true);
   assert.equal(isGroupAllowedMessage({ text: '🏦 Tạo QR', chatType: 'group' }), false);
   assert.equal(isGroupAllowedMessage({ text: '🏦 Tạo QR', chatType: 'private' }), true);
+  assert.equal(
+    isGroupAllowedMessage({
+      text: 'Vietcombank 0123456789 500k',
+      chatType: 'group',
+      parsed: { bank: 'Vietcombank', account: '0123456789', amount: 500000n },
+    }),
+    true,
+  );
 });

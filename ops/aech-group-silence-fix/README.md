@@ -13,12 +13,13 @@ Boot logs should show `SUPER_ADMIN_COUNT=1` and DIAG lines `ENV_*_EQ_EXPECTED=ye
 Self-check in Telegram: `/whoami` (aliases `/me`, `/quyen`) → `SuperAdmin: yes`.
 
 ## Rule
-In non-private chats, process text if it is a **slash** (`/cmd` or `/cmd@bot`) **or** an exact `MENU_LABELS` button.
-Leftover sessions, `pendingNv`, payment free-text, quick `+/-`, and AI analyze do **not** bypass silence in groups.
+In non-private chats, process text if it is a **slash** (`/cmd` or `/cmd@bot`), an exact `MENU_LABELS` button (staff/admin), **or** a **clear CK / tin tt** (`isClearPaymentRequest`: STK 6–19 digits + bank or amount).
+Leftover sessions, `pendingNv`, ordinary chat, quick `+/-`, and AI analyze do **not** bypass silence in groups.
+Members (`access=none`) may paste CK → bot replies with QR; missing fields (ND) keep STK/amount and ask only for the gap.
 Private chats keep menus + sessions + wizards. `callback_query` unchanged.
 
 Slash matching uses `isSlashCmd` so `/cmd@BotName` (Telegram group menu form) works the same as `/cmd`.
-Boot markers: `GROUP_SILENCE_HARD=1 ADMIN_MENU=1 SLASH_AT=1` and `SUPER_ADMIN_COUNT=<n>` (count only, no ids).
+Boot markers: `GROUP_SILENCE_HARD=1 ADMIN_MENU=1 SLASH_AT=1 AUTO_QR_GROUP=1` and `SUPER_ADMIN_COUNT=<n>` (count only, no ids).
 
 ## Why commands looked “ignored”
 1. Tip matched `text==='/in'` exactly → Telegram group menus send `/in@ngayngo_bot` → no match.
