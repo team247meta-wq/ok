@@ -42,7 +42,7 @@ const SUPER_ADMIN_IDS = new Set(
     .map(x => x.trim()).filter(Boolean)
 );
 function isSuperAdmin(userId){ return SUPER_ADMIN_IDS.has(String(userId)); }
-console.log('GROUP_SILENCE_HARD=1 ADMIN_MENU=1 SLASH_AT=1');
+console.log('GROUP_SILENCE_HARD=1 ADMIN_MENU=1 SLASH_AT=1 AUTO_QR_GROUP=1');
 console.log('SUPER_ADMIN_COUNT=' + SUPER_ADMIN_IDS.size);
 const { isSlashCmd } = routing;
 const LARGE_AMOUNT = (() => { try { return BigInt(process.env.BOT_LARGE_AMOUNT || '100000000'); } catch { return 100000000n; } })();
@@ -494,13 +494,15 @@ async function tryReadQrImage(chat,from,image,sourceMessageId){
 }
 
 async function handleImage(message){
-  const chat=message.chat,from=message.from;if(await getAccess(chat,from)==='none')return;await ensureGroup(chat,from);
+  const chat=message.chat,from=message.from;const access=await getAccess(chat,from);
   let image=null;
   try{image=await telegramImageData(message);}catch(e){console.error('Image download error:',e.message);}
-  if(!image){await send(chat.id,'⚠️ Không tải được ảnh.');return;}
-  // 1) A QR in the image is read locally, no API needed — always stable.
+  if(!image){if(access!=='none')await send(chat.id,'⚠️ Không tải được ảnh.');return;}
+  await ensureGroup(chat,from);
+  // 1) A QR in the image is read locally, no API needed — members can paste QR screenshots too.
   try{if(await tryReadQrImage(chat,from,image,message.message_id))return;}catch(e){console.error('QR image error:',e.message);}
-  // 2) No QR in the image.
+  // 2) No QR: members stay silent (no AI). Staff/admin may OCR; AI 401 must not spam the group.
+  if(access==='none')return;
   if(!AI_API_KEY){
     await send(chat.id,'🔎 Ảnh không có mã QR. Gửi ảnh có QR, hoặc dán chữ: MB 9704229999 500k nd COC PHONG');
     return;
@@ -565,15 +567,13 @@ async function handleMessage(message){
   const chat=message.chat,from=message.from;if(!chat||!from)return;if(chat.type!=='private')await registerGroupChat(chat);const text=String(message.text||'').trim();
   const isPrivate=chat.type==='private';
   if(message.photo||message.document){
-    // Groups: ignore media payment/command flows unless caption is a slash command
-    // or the user is clearly replying to a bot force_reply prompt (e.g. broadcast image).
+    // Groups: leftover sessions do not swallow photos. Broadcast images still need reply-to-bot.
     if(!isPrivate){
       const cap=String(message.caption||'').trim();
       const slashCap=routing.isSlashCommand(cap, message.caption_entities);
       if(!slashCap&&!isReplyToBot(message)){
         const sk=sessionKey(chat.id,from.id);
         if(sessions.has(sk))sessions.delete(sk);
-        return;
       }
     }
     const st0=sessions.get(sessionKey(chat.id,from.id));
@@ -581,16 +581,23 @@ async function handleMessage(message){
     await handleImage(message);return;
   }
   if(chat.type!=='private'&&stkinfo.isStkInfoCommand(text)){await handleStkInfo(chat);return;}
-  // Groups: slash (/cmd, /cmd@bot) OR exact MENU_LABELS for users who already have access.
-  // Free text / leftover sessions / pendingNv still do NOT bypass silence in groups.
+  // Groups: slash (/cmd, /cmd@bot) OR exact MENU_LABELS for staff, OR clear CK text (tin tt).
+  // Leftover sessions / pendingNv / menu chatter still do NOT bypass silence.
   const isSlash=routing.isSlashCommand(text, message.entities);
   const isMenu=routing.isMenuLabel(text);
   const isControl=isSlash||isMenu;
+  const parsedLocal=(!isSlash&&text)?parsePaymentText(text):null;
+  const isPayText=routing.isClearPaymentRequest(text, parsedLocal);
   const access=await getAccess(chat,from);
-  // No access: silent on free text (group noise). Slash / private menu → clear deny.
+  const paySession=sessions.get(sessionKey(chat.id,from.id));
+  const inPaySession=paySession&&(paySession.mode==='complete_payment'||paySession.mode==='payment');
+  // No access: silent on chatter. Slash / menu → deny. Clear CK from members → QR (keep missing fields).
   if(access==='none'){
-    if(isSlash||isControl){try{await deny(chat.id);}catch{}}
-    return;
+    if(isPayText||(inPaySession&&isReplyToBot(message))){/* fall through */}
+    else{
+      if(isSlash||isControl){try{await deny(chat.id);}catch{}}
+      return;
+    }
   }
   // Pending nv:add / nv:del — private chats only. Groups: ignore free-text pending consumption.
   const nvKey=`${chat.id}:${from.id}`;
@@ -617,19 +624,18 @@ async function handleMessage(message){
       return;
     }
   }
-  // Nhóm: slash or exact menu label. No leftover sessions / free-text bypass.
-  // Optional: allow free text only when clearly replying to the bot (force_reply continuation).
-  if(!isPrivate&&!isSlash&&!isMenu){
+  // Nhóm: slash, menu (staff already passed), or clear CK. No leftover-session swallow of chat.
+  // Reply-to-bot free text continues an active session (thiếu ND / thiếu field).
+  if(!isPrivate&&!isSlash&&!isMenu&&!isPayText){
     if(!isReplyToBot(message)){
       const sk=sessionKey(chat.id,from.id);
       if(sessions.has(sk))sessions.delete(sk);
       return;
     }
-    // Reply-to-bot free text: only continue an active session; otherwise silence.
     if(!sessions.has(sessionKey(chat.id,from.id)))return;
   }
-  // Tin tự do: chỉ coi là yêu cầu thanh toán khi có số TK + (ngân hàng hoặc số tiền). Không gọi AI ở đây.
-  if(isPrivate&&text&&!isControl&&!sessions.has(sessionKey(chat.id,from.id))&&routing.isClearPaymentRequest(text,parsePaymentText(text))){
+  // Tin tt: STK + (NH hoặc số tiền) → QR. Local parse only (no AI). Groups + private.
+  if(text&&!isControl&&!sessions.has(sessionKey(chat.id,from.id))&&isPayText){
     await ensureGroup(chat,from);const parsed=await parsePaymentSafely(text,{ai:false});const missing=paymentCompleteness(parsed);
     if(!missing.length){await createAndShowPayment(chat,from,text,message.message_id);return;}
     // Đọc được một phần -> LƯU lại, chỉ hỏi phần còn thiếu, KHÔNG bắt gõ/copy lại từ đầu.

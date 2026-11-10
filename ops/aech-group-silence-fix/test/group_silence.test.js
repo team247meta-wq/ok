@@ -23,11 +23,21 @@ test('group text "🏦 Tạo QR" is ignored (menu label not allowed)', () => {
   );
 });
 
-test('group free text payment phrases are ignored', () => {
-  for (const t of ['tiền vào 100k', 'tiền ra 50k', 'nhận 2 cái', 'MB 0123456789 500k', '+100k', '-200k']) {
+test('group free text chatter and +/- are ignored', () => {
+  for (const t of ['tiền vào 100k', 'tiền ra 50k', 'nhận 2 cái', '+100k', '-200k', 'hello']) {
     assert.equal(isGroupAllowedMessage({ text: t, chatType: 'group' }), false, t);
     assert.equal(isSlashCommand(t), false, t);
   }
+});
+
+test('group clear CK text is allowed when parsed has STK + bank/amount', () => {
+  const { isClearPaymentRequest } = require('../routing');
+  const t = 'MB 0123456789 500k nd COC PHONG';
+  const parsed = { bank: 'MB', account: '0123456789', amount: 500000n };
+  assert.equal(isClearPaymentRequest(t, parsed), true);
+  assert.equal(isGroupAllowedMessage({ text: t, chatType: 'group', parsed }), true);
+  assert.equal(isGroupAllowedMessage({ text: t, chatType: 'supergroup', parsed }), true);
+  assert.equal(isGroupAllowedMessage({ text: t, chatType: 'group' }), false); // no parse → still silent
 });
 
 test('group slash /bank is allowed', () => {

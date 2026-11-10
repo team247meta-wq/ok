@@ -14,6 +14,7 @@ test('keyword-only chat is NOT a payment request', () => {
 test('account + bank or amount IS a payment request', () => {
   assert.equal(isClearPaymentRequest('Vietcombank 0123456789 NGUYEN VAN A 500k', p({ bank: 'Vietcombank', account: '0123456789', amount: 500000n })), true);
   assert.equal(isClearPaymentRequest('0123456789 500k', p({ account: '0123456789', amount: 500000n })), true);
+  assert.equal(isClearPaymentRequest('STK: 0123456789 | NH: MB | 500000', p({ bank: 'MB', account: '0123456789', amount: 500000n })), true);
 });
 
 test('account alone (no bank, no amount) is not enough', () => {
